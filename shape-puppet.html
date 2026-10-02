@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Shape Puppet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: top bar; stage (left, fills) + build panel (right). Panel stacks under the stage on narrow screens. */
+:root{
+  --ground:#101214; --panel:#1a1d20; --line:#2c3136; --grid:#1f2427;
+  --ink:#e9ecee; --muted:#8b949c; --accent:#ffd400; --warn:#ffb020;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--ground);color:var(--ink);font:14px/1.45 var(--sans);display:flex;flex-direction:column;overflow:hidden}
+[hidden]{display:none!important}
+button{font:inherit}
+
+#top{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:calc(8px + env(safe-area-inset-top,0px)) 16px 8px;border-bottom:1px solid var(--line);background:var(--panel)}
+#top h1{margin:0 8px 0 0;font:600 15px/1 var(--sans);letter-spacing:.01em}
+.group{display:flex;align-items:center;gap:8px}
+.seg{display:flex}
+.seg button + button{border-left:0}
+.label{font:500 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.spacer{flex:1}
+button.tool{font:500 12px/1 var(--sans);color:var(--ink);background:transparent;border:1px solid var(--line);padding:9px 12px;cursor:pointer}
+button.tool:hover{border-color:var(--muted)}
+button.tool[aria-pressed="true"]{background:var(--ink);color:var(--ground);border-color:var(--ink)}
+button.primary{font:600 13px/1 var(--sans);color:#111;background:var(--accent);border:0;padding:10px 14px;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+#main{flex:1;min-height:0;display:flex}
+#stage{position:relative;flex:1;min-width:0;overflow:hidden;
+  background-color:var(--ground);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:40px 40px;background-position:center}
+#stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity .2s}
+#stage.overlay video{opacity:1}
+#stage.mirror video{transform:scaleX(-1)}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#status{position:absolute;top:12px;left:16px;font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:7px 10px;border:1px solid var(--line);background:color-mix(in srgb,var(--ground) 80%,transparent);display:flex;gap:8px;align-items:center}
+#status i{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+#status.ok i{background:#3ddc84} #status.warn i{background:var(--warn)}
+#err{position:absolute;left:16px;right:16px;bottom:16px;color:var(--warn);font-size:13px;background:var(--panel);border:1px solid var(--line);padding:10px 12px;max-width:36rem}
+
+#panel{width:340px;flex:none;border-left:1px solid var(--line);background:var(--panel);overflow-y:auto;padding:16px;display:grid;gap:18px;align-content:start}
+#panel h2{margin:0;font:500 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.block{display:grid;gap:10px}
+.row{display:flex;flex-wrap:wrap;gap:6px}
+#parts{display:grid;gap:2px}
+#parts .grp{font:500 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:10px 0 4px}
+#parts button{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;text-align:left;background:transparent;border:1px solid transparent;color:var(--ink);padding:7px 8px;cursor:pointer}
+#parts button:hover{border-color:var(--line)}
+#parts button[aria-current="true"]{border-color:var(--accent)}
+#parts .chip{width:14px;height:14px;border:1px solid var(--line)}
+#parts .sh{font:400 11px/1 var(--mono);color:var(--muted)}
+#shapes{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+#shapes button{display:grid;place-items:center;gap:4px;padding:8px 2px;background:transparent;border:1px solid var(--line);color:var(--ink);cursor:pointer;font:500 10px/1 var(--sans)}
+#shapes button[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+#shapes svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.5}
+#swatches{display:grid;grid-template-columns:repeat(10,1fr);gap:4px}
+#swatches button{aspect-ratio:1;border:2px solid transparent;padding:0;cursor:pointer;outline-offset:2px}
+#swatches button[aria-pressed="true"]{border-color:var(--ink)}
+.slider{display:grid;grid-template-columns:auto 1fr 4ch;gap:10px;align-items:center}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.out{font:500 12px/1 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.check{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:13px}
+.check input{accent-color:var(--accent);width:16px;height:16px}
+.note{color:var(--muted);font-size:12px;margin:0}
+
+@media (max-width:760px){
+  #main{flex-direction:column}
+  #stage{flex:none;height:56vh}
+  #panel{width:auto;border-left:0;border-top:1px solid var(--line);flex:1}
+}
+@media (prefers-reduced-motion:reduce){#stage video{transition:none}}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <h1>Shape Puppet</h1>
+  <button class="primary" id="camBtn">Start camera</button>
+  <div class="group">
+    <span class="label">View</span>
+    <div class="seg" role="group" aria-label="View">
+      <button class="tool" id="viewStage" aria-pressed="true" title="Character on its own, kept centred">Stage</button>
+      <button class="tool" id="viewOverlay" aria-pressed="false" title="Character drawn over you in the camera image">Overlay</button>
+    </div>
+  </div>
+  <button class="tool" id="boneBtn" aria-pressed="false" title="Show the tracked skeleton">Skeleton</button>
+  <button class="tool" id="flipBtn">Flip camera</button>
+  <div class="spacer"></div>
+  <button class="tool" id="snapBtn">Save PNG</button>
+  <button class="tool" id="panelBtn" aria-pressed="true">Build panel</button>
+</div>
+
+<div id="main">
+  <div id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="gl"></canvas>
+    <div id="status"><i></i><span id="statusText">Preview · camera off</span></div>
+    <div id="err" hidden></div>
+  </div>
+
+  <aside id="panel" aria-label="Build panel">
+    <div class="block">
+      <h2>Start from</h2>
+      <div class="row" id="presets"></div>
+    </div>
+
+    <div class="block">
+      <h2>Body parts</h2>
+      <label class="check"><input type="checkbox" id="mirrorEdits" checked> Edit left and right together</label>
+      <div id="parts"></div>
+    </div>
+
+    <div class="block" id="editor">
+      <h2 id="edTitle">Head</h2>
+      <div id="shapes" role="group" aria-label="Shape"></div>
+      <div class="slider">
+        <label class="label" for="size">Size</label>
+        <input id="size" type="range" min="0.1" max="2" step="0.05" value="1">
+        <span class="out" id="sizeOut">1.00</span>
+      </div>
+      <div id="swatches" role="group" aria-label="Colour"></div>
+      <label class="check"><input type="checkbox" id="flip"> Flip direction (cones, pyramids)</label>
+    </div>
+
+    <div class="block">
+      <h2>Character file</h2>
+      <div class="row">
+        <button class="tool" id="exportBtn">Export</button>
+        <button class="tool" id="importBtn">Import</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+      <p class="note">Your character is kept on this device automatically. Export saves it as a file you can share or load elsewhere.</p>
+    </div>
+  </aside>
+</div>
+
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
+import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+/* ================= Settings ================= */
+const WASM  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+const H_UNITS   = 10;     // world height of the camera image
+const FOLLOW    = 0.55;   // joint smoothing: 1 = raw, lower = steadier
+const VIS       = 0.5;    // below this visibility a joint is treated as out of view and filled in
+const DEPTH     = 0.6;    // how much of the tracker's depth estimate to use (it is noisier than x/y)
+const STORE_KEY = "shape-puppet-v1";
+
+const SHAPES = {
+  sphere:   "Sphere",
+  cube:     "Cube",
+  block:    "Block",
+  slab:     "Slab",
+  cylinder: "Cylinder",
+  cone:     "Cone",
+  pyramid:  "Pyramid",
+  capsule:  "Capsule",
+  ring:     "Ring",
+  none:     "None",
+};
+const SHAPE_ICONS = {
+  sphere:   '<circle cx="12" cy="12" r="8"/>',
+  cube:     '<rect x="5" y="5" width="14" height="14"/>',
+  block:    '<rect x="8" y="3" width="8" height="18"/>',
+  slab:     '<rect x="3" y="9" width="18" height="6"/>',
+  cylinder: '<ellipse cx="12" cy="5" rx="6" ry="2"/><path d="M6 5v14c0 1.1 2.7 2 6 2s6-.9 6-2V5"/>',
+  cone:     '<path d="M12 3L6 19c0 1.1 2.7 2 6 2s6-.9 6-2z"/>',
+  pyramid:  '<path d="M12 3L4 19h16z"/>',
+  capsule:  '<rect x="8" y="3" width="8" height="18" rx="4"/>',
+  ring:     '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/>',
+  none:     '<path d="M5 19L19 5"/>',
+};
+const PALETTE = ["#111111", "#f2f2f2", "#ffd400", "#ff4d2e", "#2b59ff", "#2fbf71", "#ff8fc8", "#8a5cff", "#7a7a7a", "#00c2d1"];
+
+// Body parts: a = joint the part starts at, b = joint it points to. lenScale stretches short bones (hands, feet).
+const SLOTS = [
+  { id: "head",      label: "Head",        group: "Head and body", kind: "head" },
+  { id: "torso",     label: "Torso",       group: "Head and body", kind: "torso" },
+  { id: "upperArmL", label: "Upper arm L", group: "Arms", a: "shL",  b: "elL",  pair: "upperArmR" },
+  { id: "upperArmR", label: "Upper arm R", group: "Arms", a: "shR",  b: "elR",  pair: "upperArmL" },
+  { id: "forearmL",  label: "Forearm L",   group: "Arms", a: "elL",  b: "wrL",  pair: "forearmR" },
+  { id: "forearmR",  label: "Forearm R",   group: "Arms", a: "elR",  b: "wrR",  pair: "forearmL" },
+  { id: "handL",     label: "Hand L",      group: "Arms", a: "wrL",  b: "idxL", pair: "handR", lenScale: 1.6 },
+  { id: "handR",     label: "Hand R",      group: "Arms", a: "wrR",  b: "idxR", pair: "handL", lenScale: 1.6 },
+  { id: "thighL",    label: "Thigh L",     group: "Legs", a: "hipL", b: "knL",  pair: "thighR" },
+  { id: "thighR",    label: "Thigh R",     group: "Legs", a: "hipR", b: "knR",  pair: "thighL" },
+  { id: "shinL",     label: "Shin L",      group: "Legs", a: "knL",  b: "anL",  pair: "shinR" },
+  { id: "shinR",     label: "Shin R",      group: "Legs", a: "knR",  b: "anR",  pair: "shinL" },
+  { id: "footL",     label: "Foot L",      group: "Legs", a: "anL",  b: "ftL",  pair: "footR", lenScale: 1.3 },
+  { id: "footR",     label: "Foot R",      group: "Legs", a: "anR",  b: "ftR",  pair: "footL", lenScale: 1.3 },
+];
+
+// Presets: one entry per side-less part; L and R share it
+const p = (shape, size, colour, flip = false) => ({ shape, size, colour, flip });
+const PRESETS = {
+  Blocks: {
+    head: p("cube", 0.9, "#ffd400"), torso: p("block", 0.75, "#2b59ff"),
+    upperArm: p("block", 0.4, "#ff4d2e"), forearm: p("block", 0.35, "#ff4d2e"), hand: p("cube", 0.9, "#ffd400"),
+    thigh: p("block", 0.45, "#111111"), shin: p("block", 0.4, "#111111"), foot: p("slab", 0.7, "#ffd400"),
+  },
+  Totem: {
+    head: p("cone", 0.8, "#ff4d2e"), torso: p("cylinder", 0.7, "#2fbf71"),
+    upperArm: p("capsule", 0.45, "#f2f2f2"), forearm: p("capsule", 0.4, "#f2f2f2"), hand: p("sphere", 0.9, "#ff8fc8"),
+    thigh: p("capsule", 0.5, "#8a5cff"), shin: p("capsule", 0.45, "#8a5cff"), foot: p("sphere", 0.8, "#111111"),
+  },
+  Costume: {
+    head: p("sphere", 1, "#f2f2f2"), torso: p("cone", 0.95, "#ffd400", true),
+    upperArm: p("sphere", 0.75, "#111111"), forearm: p("cone", 0.45, "#ff4d2e"), hand: p("sphere", 0.9, "#111111"),
+    thigh: p("cylinder", 0.35, "#2b59ff"), shin: p("cone", 0.45, "#2b59ff", true), foot: p("slab", 0.6, "#111111"),
+  },
+  Rings: {
+    head: p("ring", 1.1, "#00c2d1"), torso: p("ring", 0.95, "#00c2d1"),
+    upperArm: p("ring", 0.8, "#f2f2f2"), forearm: p("ring", 0.8, "#f2f2f2"), hand: p("ring", 1, "#00c2d1"),
+    thigh: p("ring", 0.8, "#f2f2f2"), shin: p("ring", 0.8, "#f2f2f2"), foot: p("ring", 1, "#00c2d1"),
+  },
+};
+const baseName = id => id.replace(/[LR]$/, "");
+function presetSpec(name) {
+  const pr = PRESETS[name], spec = {};
+  for (const s of SLOTS) spec[s.id] = { ...pr[baseName(s.id)] };
+  return spec;
+}
+
+/* ================= Elements ================= */
+const $ = id => document.getElementById(id);
+const video = $("video"), stage = $("stage"), glCanvas = $("gl");
+
+/* ================= State ================= */
+const S = {
+  spec: presetSpec("Blocks"),
+  selected: "head",
+  mirrorEdits: true,
+  view: "stage",            // "stage" | "overlay"
+  facing: "user", stream: null, tracker: null, lastVideoTime: -1,
+  live: false,              // a body is being tracked right now
+  joints: null,             // name -> Vector3 (smoothed)
+  W: H_UNITS * 16 / 9,      // world width of the camera image
+  showBones: false,
+  fit: { s: 1, x: 0, y: 0 },
+  t0: performance.now(),
+};
+try { const saved = JSON.parse(localStorage.getItem(STORE_KEY)); if (saved && saved.head) S.spec = sanitise(saved); } catch {}
+
+function sanitise(spec) {
+  const out = {};
+  for (const s of SLOTS) {
+    const v = spec[s.id] || {};
+    out[s.id] = {
+      shape: v.shape in SHAPES ? v.shape : "none",
+      size: Math.min(2, Math.max(0.1, +v.size || 1)),
+      colour: /^#[0-9a-f]{6}$/i.test(v.colour) ? v.colour : "#f2f2f2",
+      flip: !!v.flip,
+    };
+  }
+  return out;
+}
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S.spec)); } catch {} }
+
+/* ================= Stage 1: Camera ================= */
+async function startCamera() {
+  if (S.stream) S.stream.getTracks().forEach(t => t.stop());
+  S.stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: S.facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+  });
+  video.srcObject = S.stream;
+  await video.play();
+  S.W = H_UNITS * video.videoWidth / video.videoHeight;
+  S.lastVideoTime = -1;
+  stage.classList.toggle("mirror", mirrored());
+  layout();
+}
+const mirrored = () => S.facing === "user";
+
+/* ================= Stage 2: Tracker (MediaPipe Pose: 33 body points) ================= */
+async function startTracker() {
+  const fileset = await FilesetResolver.forVisionTasks(WASM);
+  const opts = delegate => ({ baseOptions: { modelAssetPath: MODEL, delegate }, runningMode: "VIDEO", numPoses: 1 });
+  try { S.tracker = await PoseLandmarker.createFromOptions(fileset, opts("GPU")); }
+  catch { S.tracker = await PoseLandmarker.createFromOptions(fileset, opts("CPU")); }
+}
+
+const LM = {
+  nose: 0, eyeL: 2, eyeR: 5, earL: 7, earR: 8, mouthL: 9, mouthR: 10,
+  shL: 11, shR: 12, elL: 13, elR: 14, wrL: 15, wrR: 16, idxL: 19, idxR: 20,
+  hipL: 23, hipR: 24, knL: 25, knR: 26, anL: 27, anR: 28, ftL: 31, ftR: 32,
+};
+
+/* ================= Stage 3: Skeleton (tracked points -> joints, with gaps filled in) ================= */
+const V = (x, y, z = 0) => new THREE.Vector3(x, y, z);
+// Rest pose in world units (hips at origin, subject's left = +x), used before the camera starts
+const REST = {
+  nose: V(0, 3.5, 0.45), eyeL: V(0.18, 3.65, 0.3), eyeR: V(-0.18, 3.65, 0.3),
+  earL: V(0.34, 3.55), earR: V(-0.34, 3.55), mouthL: V(0.12, 3.25, 0.3), mouthR: V(-0.12, 3.25, 0.3),
+  shL: V(0.85, 2.6), shR: V(-0.85, 2.6), elL: V(1.35, 1.35), elR: V(-1.35, 1.35),
+  wrL: V(1.6, 0.2), wrR: V(-1.6, 0.2), idxL: V(1.68, -0.2, 0.05), idxR: V(-1.68, -0.2, 0.05),
+  hipL: V(0.55, 0), hipR: V(-0.55, 0), knL: V(0.62, -2.1), knR: V(-0.62, -2.1),
+  anL: V(0.64, -4.1), anR: V(-0.64, -4.1), ftL: V(0.7, -4.35, 0.55), ftR: V(-0.7, -4.35, 0.55),
+};
+
+// Gentle, repeatable idle motion for the preview: arms swing, knees bend
+function idlePose(t) {
+  const J = {};
+  for (const k in REST) J[k] = REST[k].clone();
+  const swing = (keys, pivot, ang) => {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    for (const k of keys) {
+      const d = J[k].clone().sub(J[pivot]);
+      J[k].set(J[pivot].x + d.x * c - d.y * s, J[pivot].y + d.x * s + d.y * c, J[k].z);
+    }
+  };
+  const arm = 0.35 + 0.35 * Math.sin(t * 1.2), fore = 0.4 + 0.3 * Math.sin(t * 1.2);
+  swing(["elL", "wrL", "idxL"], "shL", arm);
+  swing(["elR", "wrR", "idxR"], "shR", -arm);      // right arm mirrors the left
+  swing(["wrL", "idxL"], "elL", fore);
+  swing(["wrR", "idxR"], "elR", -fore);
+  return J;
+}
+
+function trackedPose(lms) {
+  const W = S.W, m = mirrored();
+  const raw = {}, vis = {};
+  for (const [name, i] of Object.entries(LM)) {
+    const l = lms[i];
+    const x = m ? 0.5 - l.x : l.x - 0.5;
+    raw[name] = V(x * W, (0.5 - l.y) * H_UNITS, -l.z * W * DEPTH);
+    vis[name] = l.visibility ?? 1;
+  }
+  // Fill in anything out of view so the character never flails. Lengths are proportions of shoulder width.
+  const down = V(0, -1, 0), toCam = V(0, 0, 1);
+  const shW = raw.shL.distanceTo(raw.shR) || 1;
+  const spine = shW * 1.45;
+  if (vis.hipL < VIS || vis.hipR < VIS) {
+    const midSh = raw.shL.clone().add(raw.shR).multiplyScalar(0.5);
+    const side = raw.shL.clone().sub(raw.shR).multiplyScalar(0.33);
+    const midHip = midSh.addScaledVector(down, spine);
+    raw.hipL = midHip.clone().add(side); raw.hipR = midHip.clone().sub(side);
+  }
+  const fill = (child, parent, len, dir = down) => { if (vis[child] < VIS) raw[child] = raw[parent].clone().addScaledVector(dir, len); };
+  for (const s of ["L", "R"]) {
+    fill("el" + s, "sh" + s, spine * 0.62);
+    fill("wr" + s, "el" + s, spine * 0.55);
+    const fore = raw["wr" + s].clone().sub(raw["el" + s]).normalize();
+    fill("idx" + s, "wr" + s, spine * 0.16, fore);
+    fill("kn" + s, "hip" + s, spine * 0.9);
+    fill("an" + s, "kn" + s, spine * 0.85);
+    fill("ft" + s, "an" + s, spine * 0.28, V(0, -0.3, 1).normalize());
+  }
+  return raw;
+}
+
+function smoothInto(target) {
+  if (!S.joints) { S.joints = {}; for (const k in target) S.joints[k] = target[k].clone(); return; }
+  for (const k in target) S.joints[k].lerp(target[k], FOLLOW);
+}
+
+/* ================= Stage 4: Parts (each body part's position, direction and length) ================= */
+const _m = new THREE.Matrix4();
+const mid = (a, b) => a.clone().add(b).multiplyScalar(0.5);
+function basis(yDir, xHint) {
+  const y = yDir.clone().normalize();
+  let x = xHint.clone().addScaledVector(y, -xHint.dot(y));
+  if (x.lengthSq() < 1e-6) x = Math.abs(y.x) < 0.9 ? V(1, 0, 0) : V(0, 0, 1);
+  x.normalize();
+  const z = new THREE.Vector3().crossVectors(x, y).normalize();
+  x.crossVectors(y, z).normalize();
+  return new THREE.Quaternion().setFromRotationMatrix(_m.makeBasis(x, y, z));
+}
+
+function partFrame(slot, J) {
+  const side = J.shL.clone().sub(J.shR);               // body's left-right axis
+  if (slot.kind === "head") {
+    const centre = mid(J.earL, J.earR);
+    const up = mid(J.eyeL, J.eyeR).sub(mid(J.mouthL, J.mouthR));
+    const L = J.earL.distanceTo(J.earR) * 1.9;
+    const q = basis(up, J.earL.clone().sub(J.earR));
+    centre.addScaledVector(up.normalize(), L * 0.12);
+    return { pos: centre, q, L };
+  }
+  if (slot.kind === "torso") {
+    const top = mid(J.shL, J.shR), bottom = mid(J.hipL, J.hipR);
+    return { pos: mid(top, bottom), q: basis(top.clone().sub(bottom), side), L: top.distanceTo(bottom) };
+  }
+  const a = J[slot.a], b = J[slot.b];
+  const dir = b.clone().sub(a);
+  const L = dir.length() * (slot.lenScale || 1);
+  const hint = Math.abs(dir.clone().normalize().dot(side.clone().normalize())) > 0.95 ? V(0, 0, 1) : side;
+  const pos = a.clone().addScaledVector(dir.normalize(), L / 2);
+  return { pos, q: basis(dir, hint), L };
+}
+
+function partScale(shape, L, size) {
+  if (shape === "sphere" || shape === "cube" || shape === "ring") { const d = L * size; return [d, d, d]; }
+  if (shape === "slab") return [L * size, L, L * size * 0.3];
+  return [L * size, L, L * size];
+}
+
+/* ================= Stage 5: Character (one mesh per part, rebuilt when the spec changes) ================= */
+const GEOS = {
+  sphere:   new THREE.SphereGeometry(0.5, 28, 18),
+  cube:     new THREE.BoxGeometry(1, 1, 1),
+  block:    new THREE.BoxGeometry(1, 1, 1),
+  slab:     new THREE.BoxGeometry(1, 1, 1),
+  cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 28),
+  cone:     new THREE.ConeGeometry(0.5, 1, 28),
+  pyramid:  new THREE.ConeGeometry(0.5, 1, 4).rotateY(Math.PI / 4),
+  capsule:  new THREE.CapsuleGeometry(0.25, 0.5, 6, 18).scale(2, 1, 2),
+  ring:     new THREE.TorusGeometry(0.36, 0.14, 14, 36),
+};
+
+const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -100, 100);
+camera.position.z = 50;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f46, 1.5));
+const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(-4, 8, 10); scene.add(key);
+const rig = new THREE.Group(); scene.add(rig);
+
+const meshes = {};
+for (const s of SLOTS) {
+  const m = new THREE.Mesh(GEOS.cube, new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0, flatShading: true }));
+  rig.add(m); meshes[s.id] = m;
+}
+function applySpec() {
+  for (const s of SLOTS) {
+    const v = S.spec[s.id], m = meshes[s.id];
+    m.visible = v.shape !== "none";
+    if (m.visible) m.geometry = GEOS[v.shape];
+    m.material.color.set(v.colour);
+  }
+}
+
+// Skeleton lines, for showing what the tracker sees
+const BONES = [["shL","shR"],["shL","elL"],["elL","wrL"],["shR","elR"],["elR","wrR"],["shL","hipL"],["shR","hipR"],["hipL","hipR"],
+  ["hipL","knL"],["knL","anL"],["hipR","knR"],["knR","anR"],["earL","earR"],["anL","ftL"],["anR","ftR"],["wrL","idxL"],["wrR","idxR"]];
+const boneGeo = new THREE.BufferGeometry();
+boneGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(BONES.length * 6), 3));
+const boneLines = new THREE.LineSegments(boneGeo, new THREE.LineBasicMaterial({ color: 0xffd400, depthTest: false }));
+boneLines.renderOrder = 10; rig.add(boneLines);
+
+function poseCharacter(J, t) {
+  for (const s of SLOTS) {
+    const v = S.spec[s.id], m = meshes[s.id];
+    if (!m.visible) continue;
+    const f = partFrame(s, J);
+    m.position.copy(f.pos);
+    m.quaternion.copy(f.q);
+    if (v.flip) m.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(V(0, 0, 1), Math.PI));
+    m.scale.set(...partScale(v.shape, f.L, v.size));
+    // Selected part glows gently while the build panel is open
+    const sel = s.id === S.selected && !$("panel").hidden;
+    m.material.emissive.set(sel ? 0xffffff : 0x000000);
+    m.material.emissiveIntensity = sel ? 0.12 + 0.1 * Math.sin(t * 5) : 0;
+  }
+  boneLines.visible = S.showBones;
+  if (S.showBones) {
+    const a = boneGeo.attributes.position.array;
+    BONES.forEach(([p, q], i) => { a.set([J[p].x, J[p].y, J[p].z + 5, J[q].x, J[q].y, J[q].z + 5], i * 6); });
+    boneGeo.attributes.position.needsUpdate = true;
+  }
+}
+
+/* ================= Stage 6: Framing (overlay = true position; stage = centred and sized to fit) ================= */
+function layout() {
+  const r = stage.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  const aspect = r.width / r.height, imgAspect = S.W / H_UNITS;
+  // Match the video's "contain" fit so overlay lines up with the picture
+  let halfH = H_UNITS / 2, halfW = halfH * aspect;
+  if (aspect < imgAspect) { halfW = S.W / 2; halfH = halfW / aspect; }
+  camera.left = -halfW; camera.right = halfW; camera.top = halfH; camera.bottom = -halfH;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", layout);
+
+function frameRig(J) {
+  let target = { s: 1, x: 0, y: 0 };
+  if (S.view === "stage") {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const k in J) { minX = Math.min(minX, J[k].x); maxX = Math.max(maxX, J[k].x); minY = Math.min(minY, J[k].y); maxY = Math.max(maxY, J[k].y); }
+    const h = Math.max(maxY - minY + 1.2, 2), w = Math.max(maxX - minX + 1.2, 2);
+    const viewH = camera.top - camera.bottom, viewW = camera.right - camera.left;
+    const s = Math.min((viewH * 0.82) / h, (viewW * 0.82) / w);
+    target = { s, x: -(minX + maxX) / 2 * s, y: -(minY + maxY) / 2 * s };
+  }
+  const f = S.fit, k = 0.12;
+  f.s += (target.s - f.s) * k; f.x += (target.x - f.x) * k; f.y += (target.y - f.y) * k;
+  rig.scale.setScalar(f.s); rig.position.set(f.x, f.y, 0);
+}
+
+/* ================= Loop ================= */
+function loop(now) {
+  const t = (now - S.t0) / 1000;
+  let target = null;
+  if (S.tracker && video.readyState >= 2 && video.currentTime !== S.lastVideoTime) {
+    S.lastVideoTime = video.currentTime;
+    const res = S.tracker.detectForVideo(video, now);
+    const lms = res.landmarks && res.landmarks[0];
+    S.live = !!lms;
+    if (lms) target = trackedPose(lms);
+  }
+  if (!S.tracker) target = idlePose(t);
+  if (target) smoothInto(target);
+  if (S.joints) { poseCharacter(S.joints, t); frameRig(S.joints); }
+  setStatus();
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+let lastStatus = "";
+function setStatus() {
+  const text = !S.tracker ? "Preview · camera off" : S.live ? "Body tracked" : "Step back so your body is in view";
+  if (text === lastStatus) return;
+  lastStatus = text;
+  $("statusText").textContent = text;
+  $("status").className = !S.tracker ? "" : S.live ? "ok" : "warn";
+}
+
+/* ================= Stage 7: Build panel ================= */
+for (const name of Object.keys(PRESETS)) {
+  const b = document.createElement("button");
+  b.className = "tool"; b.textContent = name;
+  b.onclick = () => { S.spec = presetSpec(name); applySpec(); save(); renderPanel(); };
+  $("presets").append(b);
+}
+for (const [id, label] of Object.entries(SHAPES)) {
+  const b = document.createElement("button");
+  b.dataset.shape = id;
+  b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${SHAPE_ICONS[id]}</svg>${label}`;
+  b.onclick = () => edit({ shape: id });
+  $("shapes").append(b);
+}
+for (const c of PALETTE) {
+  const b = document.createElement("button");
+  b.style.background = c; b.dataset.colour = c; b.setAttribute("aria-label", "Colour " + c);
+  b.onclick = () => edit({ colour: c });
+  $("swatches").append(b);
+}
+$("size").oninput = e => edit({ size: +e.target.value });
+$("flip").onchange = e => edit({ flip: e.target.checked });
+$("mirrorEdits").onchange = e => { S.mirrorEdits = e.target.checked; };
+
+function edit(change) {
+  const slot = SLOTS.find(s => s.id === S.selected);
+  Object.assign(S.spec[slot.id], change);
+  if (S.mirrorEdits && slot.pair) Object.assign(S.spec[slot.pair], change);
+  applySpec(); save(); renderPanel();
+}
+
+function renderPanel() {
+  const parts = $("parts");
+  parts.innerHTML = "";
+  let group = "";
+  for (const s of SLOTS) {
+    if (s.group !== group) {
+      group = s.group;
+      const g = document.createElement("div"); g.className = "grp"; g.textContent = group; parts.append(g);
+    }
+    const v = S.spec[s.id];
+    const b = document.createElement("button");
+    b.setAttribute("aria-current", String(s.id === S.selected));
+    b.innerHTML = `<span class="chip" style="background:${v.shape === "none" ? "transparent" : v.colour}"></span><span>${s.label}</span><span class="sh">${SHAPES[v.shape]}</span>`;
+    b.onclick = () => { S.selected = s.id; renderPanel(); };
+    parts.append(b);
+  }
+  const v = S.spec[S.selected];
+  $("edTitle").textContent = SLOTS.find(s => s.id === S.selected).label;
+  document.querySelectorAll("#shapes button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.shape === v.shape)));
+  document.querySelectorAll("#swatches button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.colour.toLowerCase() === v.colour.toLowerCase())));
+  $("size").value = v.size; $("sizeOut").textContent = v.size.toFixed(2);
+  $("flip").checked = v.flip;
+}
+
+/* ================= Stage 8: Files (export / import / snapshot) ================= */
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$("exportBtn").onclick = () => download(new Blob([JSON.stringify(S.spec, null, 2)], { type: "application/json" }), "shape-puppet-character.json");
+$("importBtn").onclick = () => $("importFile").click();
+$("importFile").onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try { S.spec = sanitise(JSON.parse(await file.text())); applySpec(); save(); renderPanel(); }
+  catch { showError("That file isn't a Shape Puppet character."); }
+  e.target.value = "";
+};
+$("snapBtn").onclick = () => {
+  const r = stage.getBoundingClientRect(), dpr = renderer.getPixelRatio();
+  const c = document.createElement("canvas"); c.width = glCanvas.width; c.height = glCanvas.height;
+  const g = c.getContext("2d");
+  g.fillStyle = getComputedStyle(document.body).backgroundColor; g.fillRect(0, 0, c.width, c.height);
+  if (S.view === "overlay" && S.stream) {
+    const s = Math.min(r.width / video.videoWidth, r.height / video.videoHeight) * dpr;
+    const w = video.videoWidth * s, h = video.videoHeight * s;
+    g.save();
+    if (mirrored()) { g.translate(c.width, 0); g.scale(-1, 1); }
+    g.drawImage(video, (c.width - w) / 2, (c.height - h) / 2, w, h);
+    g.restore();
+  }
+  g.drawImage(glCanvas, 0, 0);
+  c.toBlob(b => download(b, "shape-puppet-" + Date.now() + ".png"), "image/png");
+};
+
+/* ================= Top bar ================= */
+function setView(v) {
+  S.view = v;
+  stage.classList.toggle("overlay", v === "overlay");
+  $("viewStage").setAttribute("aria-pressed", String(v === "stage"));
+  $("viewOverlay").setAttribute("aria-pressed", String(v === "overlay"));
+}
+$("viewStage").onclick = () => setView("stage");
+$("viewOverlay").onclick = () => setView("overlay");
+$("boneBtn").onclick = e => { S.showBones = !S.showBones; e.currentTarget.setAttribute("aria-pressed", String(S.showBones)); };
+$("panelBtn").onclick = e => {
+  const panel = $("panel"); panel.hidden = !panel.hidden;
+  e.currentTarget.setAttribute("aria-pressed", String(!panel.hidden));
+  layout();
+};
+$("flipBtn").onclick = async () => {
+  S.facing = S.facing === "user" ? "environment" : "user";
+  if (!S.stream) return;
+  try { await startCamera(); S.joints = null; } catch (err) { showError("Could not switch camera: " + err.message); }
+};
+
+function showError(msg) { const el = $("err"); el.textContent = msg; el.hidden = false; setTimeout(() => { el.hidden = true; }, 6000); }
+
+$("camBtn").onclick = async () => {
+  const btn = $("camBtn");
+  if (!window.isSecureContext || !navigator.mediaDevices) {
+    showError("The camera needs a secure page. Open this file from an https:// address such as GitHub Pages.");
+    return;
+  }
+  btn.disabled = true; btn.textContent = "Loading body tracker…";
+  try {
+    await Promise.all([startCamera(), startTracker()]);
+    S.joints = null;
+    btn.hidden = true;
+  } catch (err) {
+    btn.disabled = false; btn.textContent = "Start camera";
+    showError(err.name === "NotAllowedError" ? "Camera permission was refused. Allow it in the browser and try again." : "Could not start: " + err.message);
+  }
+};
+
+/* ================= Boot ================= */
+applySpec();
+renderPanel();
+layout();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
